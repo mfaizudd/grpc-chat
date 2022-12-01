@@ -3,6 +3,10 @@ use std::io::Write;
 use std::io::stdin;
 use std::io::stdout;
 
+use crossterm::cursor::MoveToColumn;
+use crossterm::cursor::MoveUp;
+use crossterm::execute;
+use crossterm::terminal::Clear;
 use data::chat::chat_client::ChatClient;
 use data::chat::ChatRequest;
 use data::chat::JoinRequest;
@@ -33,12 +37,23 @@ impl Iterator for InputStream {
 
     fn next(&mut self) -> Option<Self::Item> {
         let stdin = stdin();
+        let mut stdout = stdout();
         let mut input = String::new();
+        execute!(
+            stdout,
+            Clear(crossterm::terminal::ClearType::CurrentLine),
+            MoveToColumn(0)
+        ).unwrap();
         print!("Say: ");
-        if let Err(_) = stdout().flush() {
+        if let Err(_) = stdout.flush() {
             return None;
         }
         stdin.read_line(&mut input).expect("Invalid input");
+        execute!(
+            stdout,
+            MoveUp(1),
+            Clear(crossterm::terminal::ClearType::CurrentLine),
+        ).unwrap();
         self.current = input.trim().to_owned();
         if &self.current == "q" {
             return None;
@@ -53,7 +68,7 @@ impl Iterator for InputStream {
 
 async fn join(client: &mut ChatClient<Channel>, name: String) -> Result<i32, Box<dyn Error>> {
     let reply = client
-        .join(JoinRequest { name: name })
+        .join(JoinRequest { name })
         .await?
         .into_inner();
 
@@ -69,7 +84,15 @@ async fn get_message(
         .await?
         .into_inner();
     while let Some(msg) = stream.message().await? {
+        let mut stdout = stdout();
+        execute!(
+            stdout,
+            Clear(crossterm::terminal::ClearType::CurrentLine),
+            MoveToColumn(0)
+        )?;
         println!("{}: {}", msg.name, msg.body);
+        print!("Say: ");
+        stdout.flush()?;
     }
     Ok(())
 }
