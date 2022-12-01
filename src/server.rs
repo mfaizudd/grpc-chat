@@ -1,42 +1,17 @@
-use data::Client;
 use data::chat::chat_server::{Chat, ChatServer};
-use data::chat::FILE_DESCRIPTOR_SET;
-use data::chat::{ChatMessgae, JoinReply, JoinRequest};
-use std::error::Error;
-use std::io::ErrorKind;
+use data::chat::{ChatMessage, ChatRequest, JoinReply, JoinRequest, MessageRequest};
+use data::chat::{Empty, FILE_DESCRIPTOR_SET};
+use data::Client;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
-use tonic::{Request, Response, Status, Streaming};
+use tonic::{Request, Response, Status};
 
 use crate::data::Room;
 
 pub mod data;
-
-fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {
-    let mut err: &(dyn Error + 'static) = err_status;
-
-    loop {
-        if let Some(io_err) = err.downcast_ref::<std::io::Error>() {
-            return Some(io_err);
-        }
-
-        // h2::Error do not expose std::io::Error with `source()`
-        // https://github.com/hyperium/h2/pull/462
-        if let Some(h2_err) = err.downcast_ref::<h2::Error>() {
-            if let Some(io_err) = h2_err.get_io() {
-                return Some(io_err);
-            }
-        }
-
-        err = match err.source() {
-            Some(err) => err,
-            None => return None,
-        };
-    }
-}
 
 pub struct ChatService {
     rooms: Arc<Mutex<Vec<Room>>>,
@@ -55,10 +30,18 @@ impl Chat for ChatService {
     async fn join(&self, request: Request<JoinRequest>) -> Result<Response<JoinReply>, Status> {
         println!("Got a request: {:?}", request);
         let mut rooms = self.rooms.lock().await;
+        let request = request.into_inner();
         if rooms.len() <= 0 {
             rooms.push(Room::new())
         }
         let room_id = rooms.len() - 1;
+        let room = &rooms[room_id];
+        let clients = room.get_clients();
+        let mut clients = clients.lock().await;
+        clients.push(Client {
+            name: request.name,
+            response_stream: None
+        });
         let reply = JoinReply {
             room_id: room_id as i32,
         };
@@ -66,51 +49,46 @@ impl Chat for ChatService {
         Ok(Response::new(reply))
     }
 
-    type SendMessageStream = data::SendMessageStream;
+    type GetMessageStream = data::GetMessageStream;
 
-    async fn send_message(
+    async fn get_message(
         &self,
-        request: Request<Streaming<ChatMessgae>>,
-    ) -> Result<Response<Self::SendMessageStream>, Status> {
-        let mut in_stream = request.into_inner();
+        request: Request<ChatRequest>,
+    ) -> Result<Response<Self::GetMessageStream>, Status> {
+        let request = request.into_inner();
         let (sender, receiver) = mpsc::channel(128);
         let rooms = self.rooms.clone();
         tokio::spawn(async move {
             let rooms = rooms.lock().await;
-            loop {
-                let result = in_stream.message().await;
-                match result {
-                    Ok(result) => {
-                        if let Some(msg) = result {
-                            let room = &rooms[msg.room_id as usize];
-                            let clients = room.get_clients();
-                            let mut clients = clients.lock().await;
-                            clients.push(Client {
-                                name: msg.name.to_owned(),
-                                response_stream: sender.clone()
-                            });
-                            sender.send(Ok(msg)).await.expect("working sender");
-                        }
-                    }
-                    Err(err) => {
-                        if let Some(io_err) = match_for_io_error(&err) {
-                            if io_err.kind() == ErrorKind::BrokenPipe {
-                                eprintln!("\tclient disconnected: broken pipe");
-                                break;
-                            }
-                            match sender.send(Err(err)).await {
-                                Ok(_) => (),
-                                Err(_) => break,
-                            }
-                        }
-                    }
-                }
+            let room = &rooms[request.room_id as usize];
+            let clients = room.get_clients();
+            let mut clients = clients.lock().await;
+            let client = clients.iter_mut().find(|c| c.name == request.name);
+            if let Some(client) = client {
+                client.response_stream = Some(sender);
             }
         });
-        let out_stream = ReceiverStream::new(receiver);
-        Ok(Response::new(
-            Box::pin(out_stream) as Self::SendMessageStream
-        ))
+        Ok(Response::new(ReceiverStream::new(receiver)))
+    }
+
+    async fn send_message(
+        &self,
+        request: Request<MessageRequest>,
+    ) -> Result<Response<Empty>, Status> {
+        let request = request.into_inner();
+        let rooms = self.rooms.lock().await;
+        let room = &rooms[request.room_id as usize];
+        let clients = room.get_clients();
+        let clients = clients.lock().await;
+        for client in clients.iter() {
+            if let Some(stream) = &client.response_stream {
+                stream.send(Ok(ChatMessage {
+                    name: request.name.clone(),
+                    body: request.body.clone(),
+                })).await.expect("Failed to send message");
+            }
+        }
+        Ok(Response::new(Empty {}))
     }
 }
 

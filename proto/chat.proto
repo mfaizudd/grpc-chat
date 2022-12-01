@@ -2,7 +2,8 @@ syntax = "proto3";
 package chat;
 service Chat {
     rpc Join(JoinRequest) returns(JoinReply);
-    rpc SendMessage(stream ChatMessgae) returns(stream ChatMessgae);
+    rpc GetMessage(ChatRequest) returns(stream ChatMessage);
+    rpc SendMessage(MessageRequest) returns(Empty);
 }
 
 message JoinRequest {
@@ -13,8 +14,20 @@ message JoinReply {
     int32 room_id = 1;
 }
 
-message ChatMessgae {
+message ChatRequest {
+    int32 room_id = 1;
+    string name = 2;
+}
+
+message MessageRequest {
     int32 room_id = 1;
     string name = 2;
     string body = 3;
 }
+
+message ChatMessage {
+    string name = 1;
+    string body = 2;
+}
+
+message Empty {}

@@ -1,20 +1,19 @@
-use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 use tonic::Status;
-use tonic::codegen::futures_core::Stream;
 
-use chat::ChatMessgae;
+use chat::ChatMessage;
 
 pub mod chat {
     tonic::include_proto!("chat");
 
-    pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
+    pub const FILE_DESCRIPTOR_SET: &[u8] =
         tonic::include_file_descriptor_set!("chat_descriptor");
 }
 
-pub type SendMessageStream = Pin<Box<dyn Stream<Item = Result<ChatMessgae, Status>> + Send + 'static>>;
+pub type GetMessageStream = ReceiverStream<Result<ChatMessage, Status>>;
 
 pub struct Room {
     clients: Arc<Mutex<Vec<Client>>>
@@ -32,5 +31,5 @@ impl Room {
 
 pub struct Client {
     pub name: String,
-    pub response_stream: mpsc::Sender<Result<ChatMessgae,Status>>,
+    pub response_stream: Option<mpsc::Sender<Result<ChatMessage,Status>>>,
 }
