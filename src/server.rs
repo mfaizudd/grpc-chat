@@ -99,10 +99,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
     let addr = "0.0.0.0:5000".parse()?;
     let chat_service = ChatService::default();
+
     Server::builder()
         .add_service(reflection)
         .add_service(ChatServer::new(chat_service))
-        .serve(addr)
+        .serve_with_shutdown(addr, async {
+            tokio::signal::ctrl_c().await.unwrap();
+            println!("Ctrl-c received, exiting...")
+        })
         .await?;
 
     Ok(())

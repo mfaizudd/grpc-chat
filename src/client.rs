@@ -1,7 +1,9 @@
 use std::error::Error;
-use std::io::Write;
 use std::io::stdin;
 use std::io::stdout;
+use std::io::Write;
+use std::sync::mpsc;
+use std::sync::mpsc::Receiver;
 
 use crossterm::cursor::MoveToColumn;
 use crossterm::cursor::MoveUp;
@@ -43,7 +45,8 @@ impl Iterator for InputStream {
             stdout,
             Clear(crossterm::terminal::ClearType::CurrentLine),
             MoveToColumn(0)
-        ).unwrap();
+        )
+        .unwrap();
         print!("Say: ");
         if let Err(_) = stdout.flush() {
             return None;
@@ -53,7 +56,8 @@ impl Iterator for InputStream {
             stdout,
             MoveUp(1),
             Clear(crossterm::terminal::ClearType::CurrentLine),
-        ).unwrap();
+        )
+        .unwrap();
         self.current = input.trim().to_owned();
         if &self.current == "q" {
             return None;
@@ -67,10 +71,7 @@ impl Iterator for InputStream {
 }
 
 async fn join(client: &mut ChatClient<Channel>, name: String) -> Result<i32, Box<dyn Error>> {
-    let reply = client
-        .join(JoinRequest { name })
-        .await?
-        .into_inner();
+    let reply = client.join(JoinRequest { name }).await?.into_inner();
 
     Ok(reply.room_id)
 }
@@ -101,32 +102,45 @@ async fn send_message(
     client: &mut ChatClient<Channel>,
     room_id: i32,
     name: String,
+    sigterm_rx: Receiver<()>
 ) -> Result<(), Box<dyn Error>> {
     let mut stream = InputStream::new(room_id, name);
     while let Some(msg) = stream.next() {
-        client
-            .send_message(Request::new(msg))
-            .await?;
+        if let Ok(()) = sigterm_rx.try_recv() {
+            break;
+        }
+        client.send_message(Request::new(msg)).await?;
     }
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let (sigterm_tx, sigterm_rx) = mpsc::channel();
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.unwrap();
+        sigterm_tx.send(()).unwrap();
+        println!("Received Ctrl-c, press enter to exit")
+    });
+
     let mut client = ChatClient::connect("http://localhost:5000").await?;
     let stdin = stdin();
     let mut name = String::new();
     print!("Enter your name: ");
     stdout().flush()?;
     stdin.read_line(&mut name).expect("Invalid input");
+    if let Ok(()) = sigterm_rx.try_recv() {
+        return Ok(())
+    }
     let name = name.trim().to_owned();
     let room_id = join(&mut client, name.clone()).await?;
-    println!("Joined room {}", room_id.clone());
     let mut recv_client = client.clone();
     let recv_name = name.clone();
     tokio::spawn(async move {
-        get_message(&mut recv_client, room_id.clone(), recv_name).await.unwrap();
+        get_message(&mut recv_client, room_id.clone(), recv_name)
+            .await
+            .unwrap();
     });
-    send_message(&mut client, room_id.clone(), name.clone()).await?;
+    send_message(&mut client, room_id.clone(), name.clone(), sigterm_rx).await?;
     Ok(())
 }
