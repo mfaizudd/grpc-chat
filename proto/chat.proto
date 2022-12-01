@@ -1,0 +1,20 @@
+syntax = "proto3";
+package chat;
+service Chat {
+    rpc Join(JoinRequest) returns(JoinReply);
+    rpc SendMessage(stream ChatMessgae) returns(stream ChatMessgae);
+}
+
+message JoinRequest {
+    string name = 1;
+}
+
+message JoinReply {
+    int32 room_id = 1;
+}
+
+message ChatMessgae {
+    int32 room_id = 1;
+    string name = 2;
+    string body = 3;
+}

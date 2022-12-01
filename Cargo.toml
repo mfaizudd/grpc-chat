@@ -1,0 +1,24 @@
+[package]
+edition = "2021"
+name = "grpc-chat"
+version = "0.1.0"
+
+[[bin]]
+name = "chat-server"
+path = "src/server.rs"
+
+[[bin]]
+name = "chat-client"
+path = "src/client.rs"
+
+[dependencies]
+async-stream = "0.3"
+h2 = "0.3"
+prost = "0.11"
+tokio = {version = "1.0", features = ["macros", "rt-multi-thread"]}
+tokio-stream = {version = "0.1", features = ["net"]}
+tonic = "0.8"
+tonic-reflection = "0.6"
+
+[build-dependencies]
+tonic-build = "0.8"
