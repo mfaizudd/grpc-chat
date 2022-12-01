@@ -4,6 +4,7 @@ service Chat {
     rpc Join(JoinRequest) returns(JoinReply);
     rpc GetMessage(ChatRequest) returns(stream ChatMessage);
     rpc SendMessage(MessageRequest) returns(Empty);
+    rpc Disconnect(ChatRequest) returns(Empty);
 }
 
 message JoinRequest {

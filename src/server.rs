@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
-use tracing::{Level, info};
+use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 use crate::data::Room;
@@ -94,6 +94,20 @@ impl Chat for ChatService {
                     .expect("Failed to send message");
             }
         }
+        Ok(Response::new(Empty {}))
+    }
+
+    async fn disconnect(&self, request: Request<ChatRequest>) -> Result<Response<Empty>, Status> {
+        let request = request.into_inner();
+        let rooms = self.rooms.lock().await;
+        let room = &rooms[request.room_id as usize];
+        let clients = room.get_clients();
+        let mut clients = clients.lock().await;
+        let index = clients.iter_mut().position(|c| c.name == request.name);
+        if let Some(index) = index {
+            clients.remove(index);
+        }
+        info!("{} disconnected from server", request.name);
         Ok(Response::new(Empty {}))
     }
 }

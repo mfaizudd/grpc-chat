@@ -116,6 +116,18 @@ async fn send_message(
     Ok(())
 }
 
+async fn disconnect(
+    client: &mut ChatClient<Channel>,
+    room_id: i32,
+    name: String
+) -> Result<(), Box<dyn Error>> {
+    client.disconnect(ChatRequest {
+        name,
+        room_id
+    }).await?;
+    Ok(())
+}
+
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -151,8 +163,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         get_message(&mut recv_client, room_id.clone(), recv_name)
             .await
-            .unwrap();
+            .expect("Disconnected from server");
     });
     send_message(&mut client, room_id.clone(), name.clone(), sigterm_rx).await?;
+    disconnect(&mut client, room_id, name).await?;
     Ok(())
 }
