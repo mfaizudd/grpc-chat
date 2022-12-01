@@ -10,6 +10,8 @@ use tokio::sync::Mutex;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
+use tracing::{Level, info};
+use tracing_subscriber::FmtSubscriber;
 
 use crate::data::Room;
 
@@ -30,7 +32,6 @@ impl Default for ChatService {
 #[tonic::async_trait]
 impl Chat for ChatService {
     async fn join(&self, request: Request<JoinRequest>) -> Result<Response<JoinReply>, Status> {
-        println!("Got a request: {:?}", request);
         let mut rooms = self.rooms.lock().await;
         let request = request.into_inner();
         if rooms.len() <= 0 {
@@ -41,13 +42,13 @@ impl Chat for ChatService {
         let clients = room.get_clients();
         let mut clients = clients.lock().await;
         clients.push(Client {
-            name: request.name,
-            response_stream: None
+            name: request.name.clone(),
+            response_stream: None,
         });
         let reply = JoinReply {
             room_id: room_id as i32,
         };
-
+        info!("{} joined the server", request.name);
         Ok(Response::new(reply))
     }
 
@@ -84,10 +85,13 @@ impl Chat for ChatService {
         let clients = clients.lock().await;
         for client in clients.iter() {
             if let Some(stream) = &client.response_stream {
-                stream.send(Ok(ChatMessage {
-                    name: request.name.clone(),
-                    body: request.body.clone(),
-                })).await.expect("Failed to send message");
+                stream
+                    .send(Ok(ChatMessage {
+                        name: request.name.clone(),
+                        body: request.body.clone(),
+                    }))
+                    .await
+                    .expect("Failed to send message");
             }
         }
         Ok(Response::new(Empty {}))
@@ -97,19 +101,23 @@ impl Chat for ChatService {
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short,long,env)]
-    port: String
+    #[arg(short, long, env)]
+    port: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::INFO)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
     dotenv().ok();
     let args = Args::parse();
     let reflection = tonic_reflection::server::Builder::configure()
         .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET)
         .build()?;
     let addr = format!("0.0.0.0:{}", args.port).parse()?;
-    println!("Listening on port {}", args.port);
+    info!("Listening on port {}", args.port);
     let chat_service = ChatService::default();
 
     Server::builder()
@@ -117,7 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_service(ChatServer::new(chat_service))
         .serve_with_shutdown(addr, async {
             tokio::signal::ctrl_c().await.unwrap();
-            println!("Ctrl-c received, exiting...")
+            info!("Ctrl-c received, exiting...")
         })
         .await?;
 
