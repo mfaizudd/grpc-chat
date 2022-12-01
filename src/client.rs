@@ -5,6 +5,7 @@ use std::io::Write;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
 
+use clap::Parser;
 use crossterm::cursor::MoveToColumn;
 use crossterm::cursor::MoveUp;
 use crossterm::execute;
@@ -114,8 +115,16 @@ async fn send_message(
     Ok(())
 }
 
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short,long)]
+    server: String
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = Args::parse();
     let (sigterm_tx, sigterm_rx) = mpsc::channel();
     tokio::spawn(async move {
         tokio::signal::ctrl_c().await.unwrap();
@@ -123,7 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Received Ctrl-c, press enter to exit")
     });
 
-    let mut client = ChatClient::connect("http://localhost:5000").await?;
+    let mut client = ChatClient::connect(args.server).await?;
     let stdin = stdin();
     let mut name = String::new();
     print!("Enter your name: ");

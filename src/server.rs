@@ -1,3 +1,4 @@
+use clap::Parser;
 use data::chat::chat_server::{Chat, ChatServer};
 use data::chat::{ChatMessage, ChatRequest, JoinReply, JoinRequest, MessageRequest};
 use data::chat::{Empty, FILE_DESCRIPTOR_SET};
@@ -92,12 +93,20 @@ impl Chat for ChatService {
     }
 }
 
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short,long)]
+    port: String
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = Args::parse();
     let reflection = tonic_reflection::server::Builder::configure()
         .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET)
         .build()?;
-    let addr = "0.0.0.0:5000".parse()?;
+    let addr = format!("0.0.0.0:{}", args.port).parse()?;
     let chat_service = ChatService::default();
 
     Server::builder()
