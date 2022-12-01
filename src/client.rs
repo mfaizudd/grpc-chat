@@ -14,6 +14,7 @@ use data::chat::chat_client::ChatClient;
 use data::chat::ChatRequest;
 use data::chat::JoinRequest;
 use data::chat::MessageRequest;
+use dotenvy::dotenv;
 use tonic::transport::Channel;
 use tonic::Request;
 
@@ -118,12 +119,13 @@ async fn send_message(
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short,long)]
-    server: String
+    #[arg(short,long,env)]
+    server_url: String
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenv().ok();
     let args = Args::parse();
     let (sigterm_tx, sigterm_rx) = mpsc::channel();
     tokio::spawn(async move {
@@ -132,7 +134,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Received Ctrl-c, press enter to exit")
     });
 
-    let mut client = ChatClient::connect(args.server).await?;
+    let mut client = ChatClient::connect(args.server_url.clone()).await?;
+    println!("Connected to {}", &args.server_url);
     let stdin = stdin();
     let mut name = String::new();
     print!("Enter your name: ");

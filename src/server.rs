@@ -3,6 +3,7 @@ use data::chat::chat_server::{Chat, ChatServer};
 use data::chat::{ChatMessage, ChatRequest, JoinReply, JoinRequest, MessageRequest};
 use data::chat::{Empty, FILE_DESCRIPTOR_SET};
 use data::Client;
+use dotenvy::dotenv;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
@@ -96,17 +97,19 @@ impl Chat for ChatService {
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short,long)]
+    #[arg(short,long,env)]
     port: String
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenv().ok();
     let args = Args::parse();
     let reflection = tonic_reflection::server::Builder::configure()
         .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET)
         .build()?;
     let addr = format!("0.0.0.0:{}", args.port).parse()?;
+    println!("Listening on port {}", args.port);
     let chat_service = ChatService::default();
 
     Server::builder()
