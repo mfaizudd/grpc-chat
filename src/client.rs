@@ -14,8 +14,11 @@ use data::chat::chat_client::ChatClient;
 use data::chat::ChatRequest;
 use data::chat::JoinRequest;
 use data::chat::MessageRequest;
+use directories::ProjectDirs;
 use dotenvy::dotenv;
+use tonic::transport::Certificate;
 use tonic::transport::Channel;
+use tonic::transport::ClientTlsConfig;
 use tonic::Request;
 
 pub mod data;
@@ -104,7 +107,7 @@ async fn send_message(
     client: &mut ChatClient<Channel>,
     room_id: i32,
     name: String,
-    sigterm_rx: Receiver<()>
+    sigterm_rx: Receiver<()>,
 ) -> Result<(), Box<dyn Error>> {
     let mut stream = InputStream::new(room_id, name);
     while let Some(msg) = stream.next() {
@@ -119,25 +122,34 @@ async fn send_message(
 async fn disconnect(
     client: &mut ChatClient<Channel>,
     room_id: i32,
-    name: String
+    name: String,
 ) -> Result<(), Box<dyn Error>> {
-    client.disconnect(ChatRequest {
-        name,
-        room_id
-    }).await?;
+    client.disconnect(ChatRequest { name, room_id }).await?;
     Ok(())
 }
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short,long,env)]
-    server_url: String
+    #[arg(short, long)]
+    domain: String,
+
+    #[arg(short, long)]
+    port: Option<String>,
+
+    #[arg(short, long, env)]
+    cert: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    tls: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
+    let config_path = ProjectDirs::from("net", "faizud", "chat").expect("Invalid config path");
+    let config_path = config_path.config_dir();
+    tokio::fs::create_dir_all(config_path).await?;
     let args = Args::parse();
     let (sigterm_tx, sigterm_rx) = mpsc::channel();
     tokio::spawn(async move {
@@ -146,15 +158,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Received Ctrl-c, press enter to exit")
     });
 
-    let mut client = ChatClient::connect(args.server_url.clone()).await?;
-    println!("Connected to {}", &args.server_url);
+    let protocol = if args.tls { "https" } else { "http" };
+    let port = if let Some(port) = args.port {
+        format!(":{}", port)
+    } else {
+        String::from("")
+    };
+    let server_url = format!("{}://{}{}", protocol, args.domain, port);
+
+    let mut client = if args.tls {
+        let ca_path = config_path.join("ca.pem");
+        let pem = tokio::fs::read(&ca_path).await.expect(&format!(
+            "Certificate file not found: {}",
+            ca_path.to_string_lossy()
+        ));
+        let ca = Certificate::from_pem(pem);
+        let tls = ClientTlsConfig::new()
+            .ca_certificate(ca)
+            .domain_name(args.domain);
+        let channel = Channel::from_shared(server_url.clone())?
+            .tls_config(tls)?
+            .connect()
+            .await?;
+        ChatClient::new(channel)
+    } else {
+        ChatClient::connect(server_url.clone()).await?
+    };
+
+    println!("Connected to {}", &server_url);
     let stdin = stdin();
     let mut name = String::new();
     print!("Enter your name: ");
     stdout().flush()?;
     stdin.read_line(&mut name).expect("Invalid input");
     if let Ok(()) = sigterm_rx.try_recv() {
-        return Ok(())
+        return Ok(());
     }
     let name = name.trim().to_owned();
     let room_id = join(&mut client, name.clone()).await?;
