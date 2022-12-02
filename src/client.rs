@@ -131,8 +131,7 @@ async fn disconnect(
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short, long)]
-    domain: String,
+    name: Option<String>,
 
     #[arg(short, long)]
     port: Option<String>,
@@ -158,13 +157,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Received Ctrl-c, press enter to exit")
     });
 
+    let domain = args.name.unwrap_or("localhost".to_string());
     let protocol = if args.tls { "https" } else { "http" };
     let port = if let Some(port) = args.port {
         format!(":{}", port)
     } else {
         String::from("")
     };
-    let server_url = format!("{}://{}{}", protocol, args.domain, port);
+    let server_url = format!("{}://{}{}", protocol, domain, port);
 
     let mut client = if args.tls {
         let ca_path = config_path.join("ca.pem");
@@ -175,7 +175,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let ca = Certificate::from_pem(pem);
         let tls = ClientTlsConfig::new()
             .ca_certificate(ca)
-            .domain_name(args.domain);
+            .domain_name(domain);
         let channel = Channel::from_shared(server_url.clone())?
             .tls_config(tls)?
             .connect()

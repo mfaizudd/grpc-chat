@@ -11,13 +11,13 @@ idk lol
 To the server on port 5000:
 
 ```shell
-cargo run --bin chat-server -p 5000
+cargo run --bin chat-server -- -p 5000
 ```
 
 To start the client on localhost:5000
 
 ```shell
-cargo run --bin chat-client -d localhost -p 5000
+cargo run --bin chat-client -- localhost -p 5000
 ```
 
 ### Using tls
