@@ -82,17 +82,24 @@ impl Chat for ChatService {
         let rooms = self.rooms.lock().await;
         let room = &rooms[request.room_id as usize];
         let clients = room.get_clients();
-        let clients = clients.lock().await;
-        for client in clients.iter() {
+        let mut clients = clients.lock().await;
+        let mut invalid_clients = vec![];
+        for (i, client) in clients.iter().enumerate() {
             if let Some(stream) = &client.response_stream {
-                stream
+                let result = stream
                     .send(Ok(ChatMessage {
                         name: request.name.clone(),
                         body: request.body.clone(),
                     }))
-                    .await
-                    .expect("Failed to send message");
+                    .await;
+                if let Err(_) = result {
+                    info!("Error sending message to {}, disconnecting...", client.name);
+                    invalid_clients.push(i);
+                }
             }
+        }
+        for i in invalid_clients {
+            clients.remove(i);
         }
         Ok(Response::new(Empty {}))
     }
